@@ -1,0 +1,61 @@
+# Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+streamlit==1.28.2
+python-multipart==0.0.6
+
+# Azure Services
+azure-cosmos==4.5.1
+azure-storage-blob==12.19.0
+azure-search-documents==11.4.0
+azure-cognitiveservices-speech==1.32.1
+
+# OpenAI
+openai==1.3.7
+
+# Video/Audio Processing
+yt-dlp==2023.11.16
+pydub==0.25.1
+ffmpeg-python==0.2.0
+
+# Data Processing
+pandas>=2.2.0  # Python 3.13 compatible
+numpy>=1.26.0
+
+# Web Scraping
+httpx==0.25.2
+beautifulsoup4==4.12.2
+lxml==4.9.3
+
+# Utilities
+python-dotenv==1.0.0
+pydantic==2.5.2
+pydantic-settings==2.1.0
+
+# Visualization
+plotly==5.18.0
+matplotlib==3.8.2
+
+# Date/Time
+python-dateutil==2.8.2
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+
+# Code Quality
+black==23.11.0
+flake8==6.1.0
+mypy==1.7.1
+
+# Logging
+loguru==0.7.2
+
+# Database Migrations (for future PostgreSQL version)
+alembic==1.12.1
+sqlalchemy==2.0.23
+
+# Async
+aiofiles==23.2.1
+aiohttp==3.9.1
