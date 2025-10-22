@@ -102,6 +102,8 @@ flake8               # lint
 mypy .               # static type checking
 ```
 
+Manual diagnostic scripts for Azure integrations live in `scripts/manual/`. Run them directly with `python scripts/manual/<script_name>.py` once your environment is configured.
+
 ## Documentation
 
 - [Architecture](ARCHITECTURE.md) – system design and processing pipeline
