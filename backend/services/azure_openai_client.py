@@ -8,6 +8,8 @@ from typing import List, Dict, Any, Optional
 from openai import AzureOpenAI
 from loguru import logger
 from config import settings
+import time
+import asyncio
 
 
 class AzureOpenAIClient:
@@ -28,6 +30,7 @@ class AzureOpenAIClient:
     ) -> Dict[str, Any]:
         """
         Transcribe audio with speaker diarization using GPT-4o-transcribe-diarize.
+        Handles large files by splitting them into chunks.
 
         Args:
             audio_file_path: Path to audio file
@@ -36,35 +39,125 @@ class AzureOpenAIClient:
         Returns:
             Dictionary with transcript segments and speaker information
         """
+        from backend.services.audio_processor import audio_processor
+
         try:
-            with open(audio_file_path, "rb") as audio_file:
-                logger.info(f"Starting transcription for: {audio_file_path}")
+            # Split large audio files into chunks
+            chunk_paths = await audio_processor.split_audio_file(audio_file_path)
 
-                # Using the gpt-4o-transcribe-diarize deployment
-                result = self.client.audio.transcriptions.create(
-                    model=settings.AZURE_TRANSCRIBE_DIARIZE_DEPLOYMENT_NAME,
-                    file=audio_file,
-                    language=language,
-                    response_format="verbose_json",
-                    timestamp_granularities=["segment"]
-                )
+            if len(chunk_paths) == 1:
+                # Single file, transcribe normally
+                return await self._transcribe_single_file(chunk_paths[0], language)
+            else:
+                # Multiple chunks, transcribe each and merge
+                logger.info(f"Transcribing {len(chunk_paths)} audio chunks")
+                all_segments = []
+                cumulative_time_offset = 0.0
 
-                logger.info("Transcription completed successfully")
-                return self._parse_transcription_result(result)
+                for idx, chunk_path in enumerate(chunk_paths):
+                    logger.info(f"Transcribing chunk {idx + 1}/{len(chunk_paths)}")
+
+                    chunk_result = await self._transcribe_single_file(chunk_path, language)
+
+                    # Adjust timestamps for chunks after the first one
+                    if 'segments' in chunk_result:
+                        for segment in chunk_result['segments']:
+                            segment['start'] += cumulative_time_offset
+                            segment['end'] += cumulative_time_offset
+                        all_segments.extend(chunk_result['segments'])
+
+                    # Update time offset for next chunk (10 minutes per chunk)
+                    cumulative_time_offset += 600.0
+
+                # Clean up chunks
+                await audio_processor.cleanup_chunks(chunk_paths)
+
+                # Merge results
+                merged_result = {
+                    'full_text': ' '.join([s.get('text', '') for s in all_segments]),
+                    'segments': all_segments,
+                    'language': 'en',
+                    'duration': cumulative_time_offset
+                }
+
+                logger.info(f"Merged transcription from {len(chunk_paths)} chunks, total segments: {len(all_segments)}")
+                return merged_result
 
         except Exception as e:
             logger.error(f"Transcription failed: {str(e)}")
             raise
 
+    async def _transcribe_single_file(
+        self,
+        audio_file_path: str,
+        language: str = "en",
+        max_retries: int = 3
+    ) -> Dict[str, Any]:
+        """
+        Transcribe a single audio file with retry logic.
+
+        Args:
+            audio_file_path: Path to audio file
+            language: Language code
+            max_retries: Maximum number of retry attempts
+
+        Returns:
+            Dictionary with transcript segments
+        """
+        retry_delays = [10, 30, 60]  # Seconds to wait between retries
+
+        for attempt in range(max_retries):
+            try:
+                with open(audio_file_path, "rb") as audio_file:
+                    if attempt > 0:
+                        logger.info(f"Retry attempt {attempt + 1}/{max_retries} for: {audio_file_path}")
+                    else:
+                        logger.info(f"Starting transcription for: {audio_file_path}")
+
+                    # Using the gpt-4o-transcribe-diarize deployment
+                    result = self.client.audio.transcriptions.create(
+                        model=settings.AZURE_TRANSCRIBE_DIARIZE_DEPLOYMENT_NAME,
+                        file=audio_file,
+                        language=language,
+                        response_format="diarized_json",
+                        chunking_strategy="auto"
+                    )
+
+                    logger.info("Transcription completed successfully")
+                    return self._parse_transcription_result(result)
+
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"Transcription attempt {attempt + 1} failed: {error_msg}")
+
+                # Check if this is a server error (500) or rate limit that we should retry
+                should_retry = (
+                    "500" in error_msg or
+                    "server_error" in error_msg or
+                    "429" in error_msg or
+                    "rate_limit" in error_msg.lower()
+                )
+
+                if should_retry and attempt < max_retries - 1:
+                    delay = retry_delays[attempt]
+                    logger.warning(f"Retrying in {delay} seconds...")
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"All {max_retries} attempts failed for: {audio_file_path}")
+                    raise
+
     def _parse_transcription_result(self, result: Any) -> Dict[str, Any]:
-        """Parse transcription result into structured format."""
+        """Parse transcription result from diarized_json format into structured format."""
         segments = []
 
         if hasattr(result, 'segments'):
             for idx, segment in enumerate(result.segments):
+                # diarized_json format has 'speaker' attribute with values like "A", "B", etc.
+                speaker_label = getattr(segment, 'speaker', f"SPEAKER_{idx % 5 + 1}")
+
                 segments.append({
                     "segment_index": idx,
-                    "speaker_id": getattr(segment, 'speaker', f"SPEAKER_{idx % 5 + 1}"),
+                    "speaker_id": f"SPEAKER_{speaker_label}",  # Convert "A" to "SPEAKER_A"
                     "start_time": self._format_time(segment.start),
                     "end_time": self._format_time(segment.end),
                     "text": segment.text.strip(),
@@ -75,7 +168,7 @@ class AzureOpenAIClient:
             "full_text": result.text,
             "segments": segments,
             "language": getattr(result, 'language', 'en'),
-            "duration": getattr(result, 'duration', 0)
+            "duration": getattr(result, 'duration', 0) if hasattr(result, 'duration') and result.duration else 0
         }
 
     def _format_time(self, seconds: float) -> str:

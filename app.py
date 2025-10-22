@@ -62,7 +62,7 @@ st.sidebar.markdown("---")
 
 page = st.sidebar.radio(
     "Navigation",
-    ["🏠 Home", "➕ New Analysis", "📚 Catalog", "ℹ️ About"]
+    ["🏠 Home", "➕ New Analysis", "📚 Catalog", "📊 Visualizations", "ℹ️ About"]
 )
 
 st.sidebar.markdown("---")
@@ -164,6 +164,10 @@ elif page == "➕ New Analysis":
 elif page == "📚 Catalog":
     from pages import catalog
     catalog.show()
+
+elif page == "📊 Visualizations":
+    from pages import visualizations
+    visualizations.show()
 
 elif page == "ℹ️ About":
     st.markdown('<div class="main-header">About This Platform</div>', unsafe_allow_html=True)
