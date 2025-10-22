@@ -98,3 +98,8 @@ models/
 
 # Documentation build
 docs/_build/
+
+# Temporary test scripts
+test_*.py
+delete_*.py
+verify_*.py
